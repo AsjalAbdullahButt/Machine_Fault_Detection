@@ -1,82 +1,52 @@
-"""
-simulator.py
-============
-Python-based robot / machine simulator.
-
-Strategy chosen: **Hybrid scenario-driven with gradual parameter drift**.
-
-The simulator runs N steps across 4 operating phases that realistically
-mirror real-world machine degradation:
-
-  Phase 1 — NORMAL      : stable parameters within safe operating range
-  Phase 2 — WARM-UP     : slight temp / torque rise as load increases
-  Phase 3 — STRESS      : progressive drift toward failure-boundary values
-  Phase 4 — FAILURE-ZONE: parameters cross known fault thresholds
-
-At each step the trained LSTM model is called, and a tiered risk report is
-printed to the terminal AND saved to a CSV log file.
-
-Risk tiers
-----------
-  GREEN  (0 – 30%)  : Normal operation
-  YELLOW (30 – 70%) : Elevated risk — monitor closely
-  RED    (70 – 100%): Critical — take immediate action
-
-Per-feature warnings are triggered when any feature crosses its
-fault-threshold (derived from dataset statistics).
-"""
-
 import os
-import time
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 from collections import deque
 
-# ── Feature / threshold constants ────────────────────────────────────────────
-FEATURE_NAMES = [
-    "Type",
-    "Air temperature [K]",
-    "Process temperature [K]",
-    "Rotational speed [rpm]",
-    "Torque [Nm]",
-    "Tool wear [min]",
-]
+from config import (
+    FAULT_THRESHOLDS,
+    PHASE_SPLITS,
+    NOISE_STD,
+    RANDOM_SEED,
+    get_plot_path,
+    PLOTS_DIR,
+)
 
-# Approximate fault-boundary values derived from dataset EDA
-FAULT_THRESHOLDS = {
-    "Air temperature [K]":      301.5,   # 75th percentile in fault cases
-    "Process temperature [K]":  310.5,
-    "Rotational speed [rpm]":   1420,    # low speed → overload risk
-    "Torque [Nm]":               48.0,   # fault mean = 50.17
-    "Tool wear [min]":          180,     # fault mean = 143, max safe ≈ 200
-}
+os.makedirs(PLOTS_DIR, exist_ok=True)
 
+# ── Warning / recommendation messages ────────────────────────────────────────
 WARNING_MESSAGES = {
-    "Air temperature [K]":      "⚠  HIGH AIR TEMPERATURE detected",
-    "Process temperature [K]":  "⚠  HIGH PROCESS TEMPERATURE — heat dissipation risk",
-    "Rotational speed [rpm]":   "⚠  LOW ROTATIONAL SPEED — possible motor overload",
-    "Torque [Nm]":              "⚠  HIGH TORQUE — risk of overstrain / power failure",
-    "Tool wear [min]":          "⚠  EXCESSIVE TOOL WEAR — replace tool soon",
+    "Air temperature [K]":      "HIGH AIR TEMPERATURE detected",
+    "Process temperature [K]":  "HIGH PROCESS TEMPERATURE — heat dissipation risk",
+    "Rotational speed [rpm]":   "LOW ROTATIONAL SPEED — possible motor overload",
+    "Torque [Nm]":              "HIGH TORQUE — risk of overstrain / power failure",
+    "Tool wear [min]":          "EXCESSIVE TOOL WEAR — replace tool soon",
 }
 
 RECOMMENDATIONS = {
-    "GREEN":  "✅ System operating normally. Continue current task.",
-    "YELLOW": "⚡ Elevated risk. Reduce load, increase monitoring frequency.",
-    "RED":    "🔴 CRITICAL — Stop robot immediately & perform maintenance.",
+    "GREEN":  "System operating normally. Continue current task.",
+    "YELLOW": "Elevated risk. Reduce load and increase monitoring frequency.",
+    "RED":    "CRITICAL — Stop robot immediately and perform maintenance.",
 }
 
+TIER_COLORS = {
+    "GREEN":  "\033[92m",
+    "YELLOW": "\033[93m",
+    "RED":    "\033[91m",
+}
+RESET = "\033[0m"
 
-# ── Parameter profiles ────────────────────────────────────────────────────────
+
+# ── Simulator ─────────────────────────────────────────────────────────────────
 
 class RobotSimulator:
-    """
-    Generates machine telemetry in 4 sequential phases.
-    Each step yields one feature vector that mimics real sensor data.
-    """
+    """Generates machine telemetry across 4 sequential degradation phases."""
 
-    # Normal operating range (mean ± std from dataset)
     BASE = {
-        "Type":                       1,      # Medium-grade machine
+        "Type":                       1,
         "Air temperature [K]":      300.0,
         "Process temperature [K]":  310.0,
         "Rotational speed [rpm]":  1538.0,
@@ -84,7 +54,6 @@ class RobotSimulator:
         "Tool wear [min]":            0.0,
     }
 
-    # Per-step drift rates (applied during STRESS phase)
     DRIFT = {
         "Air temperature [K]":      +0.04,
         "Process temperature [K]":  +0.03,
@@ -95,65 +64,54 @@ class RobotSimulator:
 
     def __init__(
         self,
-        n_steps: int = 200,
-        phase_splits: tuple = (0.25, 0.20, 0.35, 0.20),
-        noise_std: float = 0.3,
-        random_seed: int = 42,
+        n_steps: int     = 200,
+        phase_splits: tuple = PHASE_SPLITS,
+        noise_std: float = NOISE_STD,
+        random_seed: int = RANDOM_SEED,
     ):
         assert abs(sum(phase_splits) - 1.0) < 1e-6
-        self.n_steps = n_steps
+        self.n_steps   = n_steps
         self.noise_std = noise_std
         np.random.seed(random_seed)
 
         cuts = np.cumsum([int(f * n_steps) for f in phase_splits])
         self.phase_ends = {
-            "NORMAL":      cuts[0],
-            "WARM-UP":     cuts[1],
-            "STRESS":      cuts[2],
+            "NORMAL":       cuts[0],
+            "WARM-UP":      cuts[1],
+            "STRESS":       cuts[2],
             "FAILURE-ZONE": n_steps,
         }
-
         self._state = {k: v for k, v in self.BASE.items()}
-        self._step = 0
+        self._step  = 0
 
     def _phase(self):
         s = self._step
-        if s < self.phase_ends["NORMAL"]:
-            return "NORMAL"
-        elif s < self.phase_ends["WARM-UP"]:
-            return "WARM-UP"
-        elif s < self.phase_ends["STRESS"]:
-            return "STRESS"
-        else:
-            return "FAILURE-ZONE"
+        if s < self.phase_ends["NORMAL"]:       return "NORMAL"
+        elif s < self.phase_ends["WARM-UP"]:    return "WARM-UP"
+        elif s < self.phase_ends["STRESS"]:     return "STRESS"
+        else:                                   return "FAILURE-ZONE"
 
     def next_step(self) -> dict:
         phase = self._phase()
-
-        # Apply drift per phase
         if phase == "WARM-UP":
             for k in self.DRIFT:
                 self._state[k] += self.DRIFT[k] * 0.3
-
         elif phase == "STRESS":
             for k in self.DRIFT:
                 self._state[k] += self.DRIFT[k]
-
         elif phase == "FAILURE-ZONE":
             for k in self.DRIFT:
-                self._state[k] += self.DRIFT[k] * 2.5   # accelerated degradation
+                self._state[k] += self.DRIFT[k] * 2.5
 
-        # Add Gaussian noise to continuous features
         obs = {}
         for feat, val in self._state.items():
             if feat == "Type":
                 obs[feat] = int(val)
             else:
-                noise = np.random.normal(0, self.noise_std)
-                obs[feat] = max(0.0, val + noise)
+                obs[feat] = max(0.0, val + np.random.normal(0, self.noise_std))
 
         self._step += 1
-        obs["step"] = self._step
+        obs["step"]  = self._step
         obs["phase"] = phase
         return obs
 
@@ -165,15 +123,9 @@ class RobotSimulator:
 # ── Risk scoring ──────────────────────────────────────────────────────────────
 
 def score_risk(risk_prob: float, obs: dict) -> dict:
-    """Compute tiered risk level + per-feature warnings."""
-    pct = risk_prob * 100.0
-
-    if pct < 30:
-        tier = "GREEN"
-    elif pct < 70:
-        tier = "YELLOW"
-    else:
-        tier = "RED"
+    """Compute tiered risk level + per-feature threshold warnings."""
+    pct  = risk_prob * 100.0
+    tier = "GREEN" if pct < 30 else "YELLOW" if pct < 70 else "RED"
 
     warnings = []
     for feat, threshold in FAULT_THRESHOLDS.items():
@@ -185,30 +137,20 @@ def score_risk(risk_prob: float, obs: dict) -> dict:
             if val > threshold:
                 warnings.append(WARNING_MESSAGES[feat])
 
-    recommendation = RECOMMENDATIONS[tier]
-
     return {
-        "risk_pct": round(pct, 2),
-        "tier": tier,
-        "warnings": warnings,
-        "recommendation": recommendation,
+        "risk_pct":       round(pct, 2),
+        "tier":           tier,
+        "warnings":       warnings,
+        "recommendation": RECOMMENDATIONS[tier],
     }
 
 
-# ── Pretty terminal printer ───────────────────────────────────────────────────
-
-TIER_COLORS = {
-    "GREEN":  "\033[92m",   # bright green
-    "YELLOW": "\033[93m",   # bright yellow
-    "RED":    "\033[91m",   # bright red
-}
-RESET = "\033[0m"
-
+# ── Terminal reporter ─────────────────────────────────────────────────────────
 
 def print_risk_report(step: int, phase: str, obs: dict, risk: dict, verbose: bool = True):
     if not verbose:
         return
-    tier = risk["tier"]
+    tier  = risk["tier"]
     color = TIER_COLORS.get(tier, "")
     print(f"\n{'─'*60}")
     print(f"  Step {step:>3} | Phase: {phase:<12} | "
@@ -219,8 +161,46 @@ def print_risk_report(step: int, phase: str, obs: dict, risk: dict, verbose: boo
           f"Torque   : {obs['Torque [Nm]']:>7.2f} Nm")
     print(f"  Tool Wear: {obs['Tool wear [min]']:>7.1f} min")
     for w in risk["warnings"]:
-        print(f"  {color}{w}{RESET}")
-    print(f"  → {risk['recommendation']}")
+        print(f"  {color}[!] {w}{RESET}")
+    print(f"  -> {risk['recommendation']}")
+
+
+# ── Risk timeline plot ────────────────────────────────────────────────────────
+
+def plot_risk_timeline(df_log: pd.DataFrame):
+    """Save a color-coded risk % timeline as 09_Simulation_Risk_Timeline.png."""
+    valid = df_log[df_log["tier"].isin(["GREEN", "YELLOW", "RED"])].copy()
+    if valid.empty:
+        return
+
+    color_map = {"GREEN": "#2ecc71", "YELLOW": "#f39c12", "RED": "#e74c3c"}
+    path = get_plot_path("sim_timeline")
+
+    fig, ax = plt.subplots(figsize=(14, 4))
+    for _, row in valid.iterrows():
+        ax.bar(row["step"], row["risk_pct"],
+               color=color_map.get(row["tier"], "#aaa"), width=1.0, linewidth=0)
+
+    # Phase boundary markers
+    phase_changes = valid[valid["phase"] != valid["phase"].shift()]
+    for _, row in phase_changes.iterrows():
+        ax.axvline(row["step"], color="#555", linewidth=0.8, linestyle="--", alpha=0.6)
+        ax.text(row["step"] + 0.5, 95, row["phase"], fontsize=7,
+                color="#333", rotation=0, va="top")
+
+    ax.axhline(30, color="#f39c12", linewidth=1, linestyle=":", alpha=0.7, label="Yellow threshold (30%)")
+    ax.axhline(70, color="#e74c3c", linewidth=1, linestyle=":", alpha=0.7, label="Red threshold (70%)")
+    ax.set_xlim(valid["step"].min(), valid["step"].max())
+    ax.set_ylim(0, 105)
+    ax.set_xlabel("Simulation Step")
+    ax.set_ylabel("Fault Risk (%)")
+    ax.set_title("Robot Simulator — Fault Risk Timeline", fontweight="bold")
+    ax.legend(loc="upper left", fontsize=8)
+    ax.grid(axis="y", alpha=0.25)
+    fig.tight_layout()
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close("all")
+    print(f"  [Saved] {path}")
 
 
 # ── Main run function ─────────────────────────────────────────────────────────
@@ -228,104 +208,90 @@ def print_risk_report(step: int, phase: str, obs: dict, risk: dict, verbose: boo
 def run_simulation(
     binary_model,
     scaler,
-    time_steps: int = 10,
-    n_steps: int = 200,
-    output_csv: str = "simulation_log.csv",
-    verbose: bool = True,
+    time_steps: int  = 10,
+    n_steps: int     = 200,
+    output_csv: str  = "simulation_log.csv",
+    verbose: bool    = True,
     print_every: int = 10,
 ):
-    """
-    Run the robot simulator and apply the trained binary LSTM at each step.
+    """Run the robot simulator and apply the trained binary LSTM at each step.
 
     Parameters
     ----------
-    binary_model   : trained Keras binary LSTM model
-    scaler         : fitted StandardScaler from training
-    time_steps     : sequence window length (must match training)
-    n_steps        : total simulation steps
-    output_csv     : path to save the step-by-step risk log
-    verbose        : whether to print live reports
-    print_every    : print every N steps (reduces terminal spam)
+    binary_model : trained Keras binary LSTM model
+    scaler       : fitted StandardScaler from training
+    time_steps   : sequence window length (must match training)
+    n_steps      : total simulation steps
+    output_csv   : path to save the step-by-step risk log CSV
+    verbose      : whether to print live reports to terminal
+    print_every  : print every N steps (reduces terminal noise)
     """
-
-    print("\n" + "═" * 60)
+    print("\n" + "=" * 60)
     print("   ROBOT SIMULATOR — LIVE FAULT RISK SCORING")
-    print("═" * 60)
-    print(f"  Phases: NORMAL → WARM-UP → STRESS → FAILURE-ZONE")
-    print(f"  Total steps : {n_steps}")
-    print(f"  Time window : {time_steps} steps")
-    print(f"  Output log  : {output_csv}\n")
+    print("=" * 60)
+    print(f"  Phases : NORMAL -> WARM-UP -> STRESS -> FAILURE-ZONE")
+    print(f"  Steps  : {n_steps}")
+    print(f"  Window : {time_steps} steps")
+    print(f"  Log    : {output_csv}\n")
 
-    sim = RobotSimulator(n_steps=n_steps)
-
-    # Feature columns (same order as scaler was fit on)
+    sim      = RobotSimulator(n_steps=n_steps)
     feat_cols = [
-        "Type",
-        "Air temperature [K]",
-        "Process temperature [K]",
-        "Rotational speed [rpm]",
-        "Torque [Nm]",
-        "Tool wear [min]",
+        "Type", "Air temperature [K]", "Process temperature [K]",
+        "Rotational speed [rpm]", "Torque [Nm]", "Tool wear [min]",
     ]
-
-    window = deque(maxlen=time_steps)   # sliding window of scaled feature vectors
+    window   = deque(maxlen=time_steps)
     log_rows = []
 
     for obs in sim:
-        step = obs["step"]
+        step  = obs["step"]
         phase = obs["phase"]
 
-        # Extract feature vector (same order as training)
-        raw_vec = np.array([[obs[f] for f in feat_cols]], dtype=np.float32)
-        scaled_vec = scaler.transform(raw_vec)[0]   # shape (n_features,)
+        raw_vec    = np.array([[obs[f] for f in feat_cols]], dtype=np.float32)
+        scaled_vec = scaler.transform(raw_vec)[0]
         window.append(scaled_vec)
 
-        # Only predict once we have a full window
         if len(window) < time_steps:
             log_rows.append({
                 "step": step, "phase": phase,
                 **{f: obs[f] for f in feat_cols},
                 "risk_pct": None, "tier": "WARMING_UP", "warnings": "",
-                "recommendation": "Collecting initial window …",
+                "recommendation": "Collecting initial window ...",
             })
             continue
 
-        # Build sequence tensor
-        seq = np.array(list(window), dtype=np.float32)     # (time_steps, n_features)
-        seq = seq[np.newaxis, ...]                          # (1, time_steps, n_features)
-
+        seq      = np.array(list(window), dtype=np.float32)[np.newaxis, ...]
         risk_prob = float(binary_model.predict(seq, verbose=0)[0][0])
-        risk = score_risk(risk_prob, obs)
+        risk      = score_risk(risk_prob, obs)
 
-        # Print every N steps or when tier is RED
         should_print = verbose and (step % print_every == 0 or risk["tier"] == "RED")
         print_risk_report(step, phase, obs, risk, verbose=should_print)
 
         log_rows.append({
-            "step": step,
-            "phase": phase,
+            "step": step, "phase": phase,
             **{f: round(obs[f], 3) for f in feat_cols},
-            "risk_pct": risk["risk_pct"],
-            "tier": risk["tier"],
-            "warnings": " | ".join(risk["warnings"]),
+            "risk_pct":       risk["risk_pct"],
+            "tier":           risk["tier"],
+            "warnings":       " | ".join(risk["warnings"]),
             "recommendation": risk["recommendation"],
         })
 
-    # Save CSV log
     df_log = pd.DataFrame(log_rows)
     df_log.to_csv(output_csv, index=False)
-    print(f"\n{'═'*60}")
-    print(f"  Simulation complete. Log saved → {output_csv}")
 
-    # Summary stats
+    print(f"\n{'='*60}")
+    print(f"  Simulation complete. Log saved -> {output_csv}")
+
     valid = df_log[df_log["tier"].isin(["GREEN", "YELLOW", "RED"])]
     if len(valid):
         tc = valid["tier"].value_counts()
         print(f"\n  Risk tier breakdown:")
         for t in ["GREEN", "YELLOW", "RED"]:
             cnt = tc.get(t, 0)
-            bar = "█" * int(cnt / len(valid) * 30)
+            bar = chr(9608) * int(cnt / len(valid) * 30)
             print(f"    {t:<8}: {cnt:>4} steps  {bar}")
-    print("═" * 60)
+
+    # Save timeline visualization
+    plot_risk_timeline(df_log)
+    print("=" * 60)
 
     return df_log
