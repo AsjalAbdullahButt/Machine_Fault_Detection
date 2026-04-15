@@ -13,6 +13,8 @@ from reportlab.platypus import (
     Spacer, Table, TableStyle,
 )
 
+import pandas as pd
+
 from config import get_plot_path, PLOT_NAMES
 
 PAGE_W = A4[0] - 32 * mm   # usable width with 16 mm margins each side
@@ -236,6 +238,67 @@ def save_pdf_report(
     metric_strip.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), colors.white)]))
     story.append(Spacer(1, 3 * mm))
     story.append(metric_strip)
+
+    # ── Working Summary ──────────────────────────────────────────────────────
+    story.append(Paragraph("How the System Works", section_style))
+    story.append(Paragraph(
+        "The pipeline first cleans the industrial sensor data, converts it into time-series windows, "
+        "balances the training folds safely after sequencing, and then trains multiple architectures. "
+        "The binary model decides whether the machine is in a fault or no-fault state, the multiclass model "
+        "identifies the specific failure type, and the RUL model estimates how many steps remain before failure.",
+        body_style,
+    ))
+    story.append(Spacer(1, 2 * mm))
+    story.append(Paragraph(
+        "During evaluation, the project reports accuracy, F1, ROC-AUC, PR-AUC, MCC, calibration, and a model "
+        "comparison table. The simulator then uses the saved models to show live risk, the predicted failure type, "
+        "and the estimated remaining useful life.",
+        body_style,
+    ))
+
+    # ── Fault Identification Summary ────────────────────────────────────────
+    story.append(Paragraph("Fault vs No-Fault Identification", section_style))
+    story.append(Paragraph(
+        f"Binary classification is the first decision layer: when the model predicts No Fault, the machine is "
+        f"treated as healthy; when it predicts Fault, the system escalates to the multiclass classifier to name the "
+        f"specific failure type. This makes the output easier to interpret in a maintenance setting and gives a "
+        f"direct link between sensor patterns and machine state.",
+        body_style,
+    ))
+    story.append(Spacer(1, 2 * mm))
+    story.append(Paragraph(
+        f"In the current run, the binary model achieved {binary_res['accuracy']:.3f} accuracy with an F1 of "
+        f"{binary_res['f1']:.3f}, while the multiclass model achieved {multi_res['accuracy']:.3f} accuracy and "
+        f"{multi_res['f1']:.3f} weighted F1. The comparison shows how each architecture balances detection quality "
+        f"and calibration across the fault classes.",
+        body_style,
+    ))
+
+    # ── Model Comparison ─────────────────────────────────────────────────────
+    story.append(Paragraph("Model Comparison", section_style))
+    if os.path.exists("results_summary.csv"):
+        try:
+            comparison_df = pd.read_csv("results_summary.csv")
+            comparison_df = comparison_df[[
+                "Task", "Architecture", "Accuracy", "F1", "ROC-AUC", "PR-AUC", "MCC", "Training Time (s)",
+            ]]
+            comparison_rows = [comparison_df.columns.tolist()] + comparison_df.astype(str).values.tolist()
+            comparison_table = _make_table(
+                comparison_rows,
+                col_widths=[25 * mm, 28 * mm, 18 * mm, 18 * mm, 18 * mm, 18 * mm, 16 * mm, 25 * mm],
+            )
+            comparison_table.hAlign = "CENTER"
+            story.append(comparison_table)
+        except Exception:
+            story.append(Paragraph(
+                "The model comparison table could not be loaded from results_summary.csv for this PDF build.",
+                body_style,
+            ))
+    else:
+        story.append(Paragraph(
+            "results_summary.csv was not found, so the model comparison table could not be embedded.",
+            body_style,
+        ))
 
     # ── Visualizations — Binary ───────────────────────────────────────────────
     story.append(PageBreak())

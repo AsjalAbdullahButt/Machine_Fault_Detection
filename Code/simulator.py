@@ -11,6 +11,7 @@ from config import (
     PHASE_SPLITS,
     NOISE_STD,
     RANDOM_SEED,
+    BINARY_THRESHOLD,
     get_plot_path,
     PLOTS_DIR,
 )
@@ -147,7 +148,16 @@ def score_risk(risk_prob: float, obs: dict) -> dict:
 
 # ── Terminal reporter ─────────────────────────────────────────────────────────
 
-def print_risk_report(step: int, phase: str, obs: dict, risk: dict, verbose: bool = True):
+def print_risk_report(
+    step: int,
+    phase: str,
+    obs: dict,
+    risk: dict,
+    risk_delta: float,
+    predicted_failure_type: str,
+    predicted_rul: float | None,
+    verbose: bool = True,
+):
     if not verbose:
         return
     tier  = risk["tier"]
@@ -155,6 +165,9 @@ def print_risk_report(step: int, phase: str, obs: dict, risk: dict, verbose: boo
     print(f"\n{'─'*60}")
     print(f"  Step {step:>3} | Phase: {phase:<12} | "
           f"{color}RISK: {risk['risk_pct']:>5.1f}%  [{tier}]{RESET}")
+    print(f"  ΔRisk(5-step): {risk_delta:+6.2f}%   Pred Failure Type: {predicted_failure_type}")
+    if predicted_rul is not None:
+        print(f"  Estimated RUL: {predicted_rul:>6.1f} steps")
     print(f"  Air Temp : {obs['Air temperature [K]']:>7.2f} K   "
           f"Proc Temp: {obs['Process temperature [K]']:>7.2f} K")
     print(f"  RPM      : {obs['Rotational speed [rpm]']:>7.1f}     "
@@ -168,7 +181,7 @@ def print_risk_report(step: int, phase: str, obs: dict, risk: dict, verbose: boo
 # ── Risk timeline plot ────────────────────────────────────────────────────────
 
 def plot_risk_timeline(df_log: pd.DataFrame):
-    """Save a color-coded risk % timeline as 09_Simulation_Risk_Timeline.png."""
+    """Save risk timeline with rolling risk-delta acceleration subplot."""
     valid = df_log[df_log["tier"].isin(["GREEN", "YELLOW", "RED"])].copy()
     if valid.empty:
         return
@@ -176,7 +189,8 @@ def plot_risk_timeline(df_log: pd.DataFrame):
     color_map = {"GREEN": "#2ecc71", "YELLOW": "#f39c12", "RED": "#e74c3c"}
     path = get_plot_path("sim_timeline")
 
-    fig, ax = plt.subplots(figsize=(14, 4))
+    fig, axes = plt.subplots(2, 1, figsize=(14, 7), sharex=True, gridspec_kw={"height_ratios": [2.2, 1]})
+    ax = axes[0]
     for _, row in valid.iterrows():
         ax.bar(row["step"], row["risk_pct"],
                color=color_map.get(row["tier"], "#aaa"), width=1.0, linewidth=0)
@@ -197,6 +211,21 @@ def plot_risk_timeline(df_log: pd.DataFrame):
     ax.set_title("Robot Simulator — Fault Risk Timeline", fontweight="bold")
     ax.legend(loc="upper left", fontsize=8)
     ax.grid(axis="y", alpha=0.25)
+
+    # Rolling risk delta subplot: acceleration zones
+    ax2 = axes[1]
+    deltas = valid["risk_delta"].fillna(0.0).values
+    steps = valid["step"].values
+    accel_colors = ["#e74c3c" if d >= 10 else "#f39c12" if d >= 3 else "#2ecc71" for d in deltas]
+    ax2.bar(steps, deltas, color=accel_colors, width=1.0, linewidth=0)
+    ax2.axhline(0, color="#444", linewidth=1)
+    ax2.axhline(3, color="#f39c12", linewidth=1, linestyle=":", alpha=0.8)
+    ax2.axhline(10, color="#e74c3c", linewidth=1, linestyle=":", alpha=0.8)
+    ax2.set_ylabel("Δ Risk (%)")
+    ax2.set_xlabel("Simulation Step")
+    ax2.set_title("Rolling Risk Delta: risk[t] - mean(risk[t-5:t])", fontsize=10)
+    ax2.grid(axis="y", alpha=0.25)
+
     fig.tight_layout()
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close("all")
@@ -207,7 +236,11 @@ def plot_risk_timeline(df_log: pd.DataFrame):
 
 def run_simulation(
     binary_model,
+    multiclass_model,
     scaler,
+    class_names,
+    rul_model=None,
+    binary_threshold: float = BINARY_THRESHOLD,
     time_steps: int  = 10,
     n_steps: int     = 200,
     output_csv: str  = "simulation_log.csv",
@@ -218,8 +251,11 @@ def run_simulation(
 
     Parameters
     ----------
-    binary_model : trained Keras binary LSTM model
+    binary_model : trained Keras binary model
+    multiclass_model : trained Keras multiclass model
     scaler       : fitted StandardScaler from training
+    class_names  : decoded failure type names
+    rul_model    : optional trained Keras RUL regression model
     time_steps   : sequence window length (must match training)
     n_steps      : total simulation steps
     output_csv   : path to save the step-by-step risk log CSV
@@ -240,6 +276,7 @@ def run_simulation(
         "Rotational speed [rpm]", "Torque [Nm]", "Tool wear [min]",
     ]
     window   = deque(maxlen=time_steps)
+    risk_window = deque(maxlen=5)
     log_rows = []
 
     for obs in sim:
@@ -255,6 +292,9 @@ def run_simulation(
                 "step": step, "phase": phase,
                 **{f: obs[f] for f in feat_cols},
                 "risk_pct": None, "tier": "WARMING_UP", "warnings": "",
+                "risk_delta": None,
+                "predicted_failure_type": "WARMING_UP",
+                "predicted_rul_steps": None,
                 "recommendation": "Collecting initial window ...",
             })
             continue
@@ -263,14 +303,43 @@ def run_simulation(
         risk_prob = float(binary_model.predict(seq, verbose=0)[0][0])
         risk      = score_risk(risk_prob, obs)
 
+        risk_window.append(risk["risk_pct"])
+        rolling_mean = float(np.mean(list(risk_window)[:-1])) if len(risk_window) > 1 else risk["risk_pct"]
+        risk_delta = float(risk["risk_pct"] - rolling_mean)
+
+        predicted_failure_type = "No Failure"
+        if risk_prob >= binary_threshold:
+            multi_prob = multiclass_model.predict(seq, verbose=0)[0]
+            pred_class = int(np.argmax(multi_prob))
+            if pred_class == 0 and len(multi_prob) > 1:
+                pred_class = int(np.argmax(multi_prob[1:]) + 1)
+            if pred_class < len(class_names):
+                predicted_failure_type = class_names[pred_class]
+
+        predicted_rul = None
+        if rul_model is not None:
+            predicted_rul = float(max(0.0, rul_model.predict(seq, verbose=0)[0][0]))
+
         should_print = verbose and (step % print_every == 0 or risk["tier"] == "RED")
-        print_risk_report(step, phase, obs, risk, verbose=should_print)
+        print_risk_report(
+            step,
+            phase,
+            obs,
+            risk,
+            risk_delta=risk_delta,
+            predicted_failure_type=predicted_failure_type,
+            predicted_rul=predicted_rul,
+            verbose=should_print,
+        )
 
         log_rows.append({
             "step": step, "phase": phase,
             **{f: round(obs[f], 3) for f in feat_cols},
             "risk_pct":       risk["risk_pct"],
+            "risk_delta":     round(risk_delta, 3),
             "tier":           risk["tier"],
+            "predicted_failure_type": predicted_failure_type,
+            "predicted_rul_steps": round(predicted_rul, 3) if predicted_rul is not None else None,
             "warnings":       " | ".join(risk["warnings"]),
             "recommendation": risk["recommendation"],
         })

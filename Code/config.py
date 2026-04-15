@@ -1,17 +1,11 @@
-"""
-config.py
-=========
-Single source of truth for all hyperparameters, feature definitions,
-fault thresholds, and path constants used across the pipeline.
-
-Edit values here — no need to touch any other file.
-"""
-
 # ── Paths ─────────────────────────────────────────────────────────────────────
 PLOTS_DIR   = "plots"
 REPORT_PDF  = "Report.pdf"
 SIM_LOG_CSV = "simulation_log.csv"
 RESULTS_CSV = "results_summary.csv"
+MODELS_DIR  = "models"
+BINARY_MODEL_FILE = "binary_lstm.keras"
+MULTI_MODEL_FILE  = "multiclass_lstm.keras"
 
 # ── Data pipeline ─────────────────────────────────────────────────────────────
 TIME_STEPS  = 10      # LSTM sequence (sliding window) length
@@ -45,9 +39,18 @@ LEARNING_RATE = 1e-3
 EPOCHS        = 60
 BATCH_SIZE    = 64
 VAL_SPLIT     = 0.10
-ES_PATIENCE   = 8     # EarlyStopping patience
+ES_PATIENCE   = 15    # EarlyStopping patience
+ES_MIN_DELTA  = 1e-3  # minimum val_loss improvement to reset EarlyStopping
 LR_PATIENCE   = 4     # ReduceLROnPlateau patience
 MIN_LR        = 1e-6
+TS_CV_SPLITS  = 5
+TUNING_EPOCHS = 12
+TUNING_BATCH_SIZE = 64
+TUNING_GRID = {
+    "lstm_units": [32, 64, 128],
+    "dropout": [0.2, 0.3, 0.4],
+    "learning_rate": [1e-3, 5e-4],
+}
 
 # ── Inference ─────────────────────────────────────────────────────────────────
 BINARY_THRESHOLD = 0.40   # decision boundary (lower than 0.5 → higher fault recall)

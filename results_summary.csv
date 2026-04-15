@@ -1,3 +1,7 @@
-Model,Accuracy,Precision,Recall,F1,ROC-AUC
-Binary LSTM (Fault vs No Fault),0.9804,0.0000,0.0000,0.0000,0.8285
-Multiclass LSTM (Failure Type),0.9699,0.9708,0.9699,0.9700,N/A (see 07_Multiclass_LSTM_ROC_Curves.png)
+Task,Architecture,Accuracy,F1,ROC-AUC,PR-AUC,MCC,Training Time (s),Parameter Count,Precision,Recall
+Binary,LSTM,0.9807,0.0,0.9025,0.3518,0.0,0.0,32065,0.0,0.0
+Multiclass,LSTM,0.8135,0.8861,0.9618,0.9898,0.2544,0.0,33478,0.9848,0.8135
+Binary,CNN+LSTM,0.9819,0.2857,0.9302,0.3605,0.3288,0.0,36609,0.6,0.1875
+Multiclass,CNN+LSTM,0.9626,0.9711,0.9457,0.9905,0.4517,0.0,39046,0.983,0.9626
+Binary,Transformer,0.9807,0.0,0.8718,0.1973,0.0,0.0,34625,0.0,0.0
+Multiclass,Transformer,0.892,0.9322,0.9628,0.9913,0.3103,0.0,34950,0.9838,0.892

@@ -1,78 +1,127 @@
-# Predictive Fault Detection in Robots Using Deep Learning
+# Predictive Fault Detection in Robots Using Deep Learning 🤖
 
-End-to-end LSTM pipeline for predictive maintenance — detects machine faults and classifies failure types from industrial sensor telemetry.
-
-## Developed by Asjal Abdullah
-
----
+End-to-end deep learning project for predictive maintenance and failure analysis on industrial sensor telemetry.
 
 ## Overview
 
-This project builds a two-stage deep learning system trained on the [AI4I 2020 Predictive Maintenance Dataset](https://www.kaggle.com/datasets/stephanmatzka/predictive-maintenance-dataset-ai4i-2020):
+This project goes beyond a single model. It compares multiple architectures, explains their predictions, and simulates live risk over time:
 
-1. **Binary LSTM** — classifies each timestep as *Fault* or *No Fault*
-2. **Multiclass LSTM** — identifies the specific failure type among six categories
+1. Binary fault detection: `Fault` vs `No Fault`
+2. Multiclass failure classification: one of six failure types
+3. RUL estimation: regression head that predicts remaining useful life
+4. Explainability: attention heatmaps and feature contribution charts
+5. Simulation: live risk scoring, failure-type prediction, and rolling risk acceleration
+6. Model comparison: a summary table across LSTM, CNN+LSTM, and Transformer
 
-A four-phase robot simulator then applies the trained binary model in real time, scoring live risk across a degradation scenario (NORMAL → WARM-UP → STRESS → FAILURE-ZONE).
+## Pipeline Summary
 
----
+The project uses this workflow:
 
-## Project Structure
+1. Load and clean the dataset from `Dataset/`
+2. Encode features and labels
+3. Build temporal sequences for the LSTM-style models
+4. Apply sequence-level SMOTE only after sequencing to avoid temporal leakage
+5. Use `TimeSeriesSplit` for fold-aware validation
+6. Train and compare three architectures:
+   - LSTM
+   - CNN + LSTM
+   - Lightweight Transformer
+7. Train an additional RUL regression model with Huber loss
+8. Generate evaluation plots, explainability plots, and a PDF report
+9. Run the robot simulator with binary risk, failure type, and RUL outputs
+
+## Models
+
+### 1) LSTM
+
+Baseline recurrent model for sequential fault detection and classification. It is the reference point for all comparisons.
+
+### 2) CNN + LSTM
+
+This hybrid model uses `Conv1D` to learn short local sensor patterns, then `LSTM` to capture longer temporal dependencies. In practice, this is often stronger than a pure LSTM on sensor streams.
+
+### 3) Lightweight Transformer
+
+This model uses a small self-attention encoder with two attention heads. Instead of relying on recurrence, it learns global relationships across timesteps. It is also the model used for attention-based explainability.
+
+### 4) RUL Regression LSTM
+
+This model predicts remaining useful life in steps rather than only yes/no fault status. It uses Huber loss for robustness and is shown in the simulator alongside fault risk.
+
+## Explainability
+
+The project generates two explainability outputs:
+
+- Attention heatmaps for the Transformer, one per failure type
+- Permutation importance plots showing which features matter most for each failure class
+
+These are saved under `plots/` and also included in the report workflow.
+
+## Project Structure 📁
 
 ```text
-Machine_Fault_Detection/
+.
 ├── Code/
-│   ├── config.py            # all hyperparameters and path constants
-│   ├── data_processing.py   # loading, SMOTE, scaling, sequence creation
-│   ├── models.py            # LSTM architectures, training, evaluation, plots
-│   ├── simulator.py         # 4-phase robot simulator with live risk scoring
-│   ├── report_utils.py      # PDF report builder (metrics + embedded plots)
-│   └── main.py              # CLI orchestrator
+│   ├── advanced_models.py     # RUL regression model and evaluation
+│   ├── config.py              # hyperparameters, paths, thresholds
+│   ├── data_processing.py     # preprocessing, SMOTE, sequence building, CV folds
+│   ├── explainability.py      # attention heatmaps and feature contribution plots
+│   ├── main.py                # CLI entrypoint and orchestration
+│   ├── models.py              # LSTM / CNN+LSTM / Transformer models and metrics
+│   ├── report_utils.py        # PDF report generator
+│   ├── simulator.py           # live risk scoring and failure-type reporting
+│   └── tuning.py              # manual hyperparameter grid search
 ├── Dataset/
 │   └── predictive_maintenance.csv
-├── plots/                   # generated after a run
-├── Report.pdf               # generated after a run
-├── results_summary.csv      # generated after a run
+├── Documentation/
+├── models/
+├── plots/
+├── Report.pdf
+├── results_summary.csv
 ├── requirements.txt
 └── README.md
 ```
 
----
-
 ## Requirements
 
-Python 3.10+ recommended.
+Install dependencies with:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Or manually:
+If you want a manual install, use:
 
 ```bash
 pip install numpy pandas matplotlib scikit-learn imbalanced-learn tensorflow keras reportlab
 ```
 
----
+## Run Commands
 
-## Usage
+All commands below are generic and do not depend on a local machine path.
 
-### Full pipeline (60 epochs, 200 simulator steps)
+### Full run
 
 ```bash
 python Code/main.py
 ```
 
-### Quick smoke test (fast, no simulator)
+### Faster smoke run
 
 ```bash
-python Code/main.py --epochs 5 --no-sim
+python Code/main.py --epochs 1 --no-sim --no-tune
 ```
 
-### Custom run
+### Skip retraining and load saved models
 
 ```bash
-python Code/main.py --epochs 60 --timesteps 10 --batch 64 --sim-steps 200
+python Code/main.py --load-models
+```
+
+### Disable simulator
+
+```bash
+python Code/main.py --no-sim
 ```
 
 ### Custom dataset path
@@ -81,65 +130,80 @@ python Code/main.py --epochs 60 --timesteps 10 --batch 64 --sim-steps 200
 python Code/main.py --csv /path/to/predictive_maintenance.csv
 ```
 
----
+### Skip tuning
 
-## Configuration
+```bash
+python Code/main.py --no-tune
+```
 
-All hyperparameters live in `Code/config.py`. Key values:
+## Hyperparameters
 
-| Parameter | Default | Description |
-| --- | --- | --- |
-| `LSTM_UNITS` | 64 | Units in first LSTM layer |
-| `DROPOUT_RATE` | 0.3 | Dropout applied after each LSTM block |
-| `BINARY_THRESHOLD` | 0.4 | Decision boundary for fault detection |
-| `TIME_STEPS` | 10 | Sliding window length |
-| `EPOCHS` | 60 | Maximum training epochs (early stopping) |
-| `BATCH_SIZE` | 64 | Training batch size |
+Key values are centralized in `Code/config.py`.
 
----
+| Parameter | Meaning |
+| --- | --- |
+| `TIME_STEPS` | Sliding window size for sequences |
+| `EPOCHS` | Maximum training epochs |
+| `BATCH_SIZE` | Training batch size |
+| `ES_PATIENCE` | Early stopping patience |
+| `ES_MIN_DELTA` | Minimum validation loss improvement |
+| `BINARY_THRESHOLD` | Decision threshold for fault detection |
+| `TS_CV_SPLITS` | Number of time-series CV folds |
 
-## Output Files
+The manual tuning grid searches over:
 
-After a successful run:
+- `LSTM_UNITS` in `{32, 64, 128}`
+- `DROPOUT_RATE` in `{0.2, 0.3, 0.4}`
+- `LEARNING_RATE` in `{1e-3, 5e-4}`
+
+## Data and Evaluation Process
+
+### Data handling
+
+- SMOTE is applied after sequence creation to preserve temporal structure
+- `TimeSeriesSplit` is used so future data does not leak into training folds
+- Class weights are still computed and used during training
+
+### Evaluation
+
+- Binary metrics: Accuracy, Precision, Recall, F1, ROC-AUC, PR-AUC, MCC, calibration, and Brier score
+- Multiclass metrics: Accuracy, weighted Precision/Recall/F1, ROC-AUC, PR-AUC, and MCC
+- Model comparison table: LSTM vs CNN+LSTM vs Transformer
+- RUL metrics: MAE and RMSE
+
+## Outputs 📁
+
+After a run, the following artifacts are produced:
 
 | File | Description |
 | --- | --- |
-| `Report.pdf` | Full report with metrics tables and all 8 embedded plots |
-| `results_summary.csv` | Binary and multiclass metric comparison |
-| `plots/01_Binary_LSTM_Training_History.png` | Loss & accuracy curves - binary model |
-| `plots/02_Binary_LSTM_Confusion_Matrix.png` | Confusion matrix - binary model |
-| `plots/03_Binary_LSTM_ROC_Curve.png` | ROC curve with AUC - binary model |
-| `plots/04_Binary_LSTM_F1_Scores.png` | Per-class F1 bar chart - binary model |
-| `plots/05_Multiclass_LSTM_Training_History.png` | Loss & accuracy curves - multiclass model |
-| `plots/06_Multiclass_LSTM_Confusion_Matrix.png` | Confusion matrix - multiclass model |
-| `plots/07_Multiclass_LSTM_ROC_Curves.png` | One-vs-rest ROC curves - multiclass model |
-| `plots/08_Multiclass_LSTM_F1_Scores.png` | Per-class F1 bar chart - multiclass model |
-| `plots/09_Simulation_Risk_Timeline.png` | Color-coded risk % over simulator steps |
-| `simulation_log.csv` | Step-by-step simulator log with risk tier and warnings |
-
----
+| `Report.pdf` | Full PDF report with metrics and plots |
+| `results_summary.csv` | Comparison table across all architectures |
+| `simulation_log.csv` | Live simulator log with risk, delta, failure type, and RUL |
+| `models/` | Saved trained models |
+| `plots/` | Training, evaluation, explainability, and simulator plots |
 
 ## Dataset
 
-**AI4I 2020 Predictive Maintenance Dataset** — 10,000 records, 6 features:
+The project uses the [AI4I 2020 Predictive Maintenance Dataset](https://www.kaggle.com/datasets/stephanmatzka/predictive-maintenance-dataset-ai4i-2020).
 
-| Feature | Description |
-| --- | --- |
-| Air temperature [K] | Ambient air temperature |
-| Process temperature [K] | Operating process temperature |
-| Rotational speed [rpm] | Spindle rotation speed |
-| Torque [Nm] | Applied torque |
-| Tool wear [min] | Cumulative tool wear time |
-| Type | Machine grade (L / M / H) |
+Features include:
 
-Target: binary fault label + one of six failure types (No Failure, Heat Dissipation Failure, Power Failure, Overstrain Failure, Tool Wear Failure, Random Failures).
+- Air temperature [K]
+- Process temperature [K]
+- Rotational speed [rpm]
+- Torque [Nm]
+- Tool wear [min]
+- Type
 
-Class imbalance (~97% no-fault) is addressed with **SMOTE** combined with **class weights**.
+Targets include:
 
----
+- Binary fault label
+- Failure type label
 
 ## Notes
 
-- The dataset must be at `Dataset/predictive_maintenance.csv` or passed via `--csv`.
-- All plots and generated files are excluded from git by default (see `.gitignore`).
-- To tune the model, edit `Code/config.py` — no need to touch any other file.
+- Put the dataset in `Dataset/` or pass it with `--csv`.
+- Saved models are written to `models/`.
+- Generated plots and reports are written to `plots/`, `Report.pdf`, and `results_summary.csv`.
+- The simulator now reports predicted failure type and RUL when available.
