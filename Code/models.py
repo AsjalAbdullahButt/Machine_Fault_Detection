@@ -128,7 +128,9 @@ def train_model(
     epochs: int         = EPOCHS,
     batch_size: int     = BATCH_SIZE,
     val_split: float    = VAL_SPLIT,
+    history_save_path: str = None,
 ):
+    import json
     callbacks = [
         EarlyStopping(
             monitor="val_loss", patience=ES_PATIENCE,
@@ -150,7 +152,34 @@ def train_model(
         class_weight=cw,
         verbose=1,
     )
+    # Save history to JSON if path provided
+    if history_save_path:
+        os.makedirs(os.path.dirname(history_save_path) if os.path.dirname(history_save_path) else ".", exist_ok=True)
+        with open(history_save_path, "w") as f:
+            json.dump({
+                "history": {k: [float(v) for v in vals] for k, vals in history.history.items()},
+                "epoch": history.epoch,
+                "params": history.params
+            }, f, indent=2)
+        print(f"  [Saved] History -> {history_save_path}")
     return history
+
+
+def load_history_from_json(json_path: str):
+    """Load a saved training history dict from JSON file."""
+    import json
+    if not os.path.exists(json_path):
+        return None
+    with open(json_path) as f:
+        data = json.load(f)
+    # Return a simple namespace that mimics Keras History object
+    class _FakeHistory:
+        pass
+    h = _FakeHistory()
+    h.history = data.get("history", {})
+    h.epoch = data.get("epoch", list(range(len(next(iter(h.history.values()), [])))))
+    h.params = data.get("params", {})
+    return h
 
 
 # ── Plots ─────────────────────────────────────────────────────────────────────
@@ -173,10 +202,31 @@ def _resolve_plot_path(plot_id: str) -> str:
 
 def plot_training_history(history, title: str, plot_key: str):
     path = _resolve_plot_path(plot_key)
+    history_dict = getattr(history, "history", {}) or {}
+    
+    # CRITICAL: If history is empty or missing, attempt to load from JSON
+    if not history_dict or "loss" not in history_dict:
+        # Try to find and load corresponding JSON
+        json_path = path.replace(".png", "_history.json").replace("plots/", "models/").replace("plots\\", "models\\")
+        if os.path.exists(json_path):
+            loaded = load_history_from_json(json_path)
+            if loaded:
+                history_dict = loaded.history
+                history = loaded
+        if not history_dict or "loss" not in history_dict:
+            # Last resort: create a visible error plot
+            fig, ax = plt.subplots(figsize=(8, 4))
+            ax.text(0.5, 0.5, f"Training history not available\nfor: {title}\n\nRun training first (not --load-models)", 
+                   ha="center", va="center", fontsize=12, transform=ax.transAxes,
+                   bbox=dict(boxstyle="round", facecolor="lightyellow", alpha=0.8))
+            ax.set_axis_off()
+            fig.suptitle(title, fontsize=13, fontweight="bold")
+            _save_fig(path, fig=fig)
+            return
+    
     fig, axes = plt.subplots(1, 2, figsize=(13, 4))
     fig.suptitle(title, fontsize=14, fontweight="bold")
 
-    history_dict = getattr(history, "history", {}) or {}
     loss_keys = ["loss", "val_loss"]
     acc_keys = ["accuracy", "val_accuracy"]
     alt_acc_keys = ["binary_accuracy", "val_binary_accuracy"]

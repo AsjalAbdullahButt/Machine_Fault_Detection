@@ -1,9 +1,20 @@
 # ── Paths ─────────────────────────────────────────────────────────────────────
-PLOTS_DIR   = "plots"
-REPORT_PDF  = "Report.pdf"
-SIM_LOG_CSV = "simulation_log.csv"
-RESULTS_CSV = "results_summary.csv"
-MODELS_DIR  = "models"
+import os as _os
+PLOTS_DIR = _os.path.normpath(
+    _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "plots")
+)
+MODELS_DIR = _os.path.normpath(
+    _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "models")
+)
+RESULTS_CSV = _os.path.normpath(
+    _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "results_summary.csv")
+)
+SIM_LOG_CSV = _os.path.normpath(
+    _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "simulation_log.csv")
+)
+REPORT_PDF = _os.path.normpath(
+    _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "Report.pdf")
+)
 BINARY_MODEL_FILE = "binary_lstm.keras"
 MULTI_MODEL_FILE  = "multiclass_lstm.keras"
 
@@ -72,22 +83,52 @@ FAULT_THRESHOLDS = {
 # ── Plot naming convention ────────────────────────────────────────────────────
 # Keys used internally; paths resolved at runtime via get_plot_path()
 PLOT_NAMES = {
-    # Binary model
-    "binary_history": "01_Binary_LSTM_Training_History.png",
-    "binary_cm":      "02_Binary_LSTM_Confusion_Matrix.png",
-    "binary_roc":     "03_Binary_LSTM_ROC_Curve.png",
-    "binary_f1":      "04_Binary_LSTM_F1_Scores.png",
-    # Multiclass model
-    "multi_history":  "05_Multiclass_LSTM_Training_History.png",
-    "multi_cm":       "06_Multiclass_LSTM_Confusion_Matrix.png",
-    "multi_roc":      "07_Multiclass_LSTM_ROC_Curves.png",
-    "multi_f1":       "08_Multiclass_LSTM_F1_Scores.png",
-    # Simulator
-    "sim_timeline":   "09_Simulation_Risk_Timeline.png",
+    # ── LSTM Binary
+    "binary_history":            "lstm_binary_history.png",
+    "binary_cm":                 "lstm_binary_confusion_matrix.png",
+    "binary_roc":                "lstm_binary_roc_curve.png",
+    "binary_f1":                 "lstm_binary_f1_scores.png",
+    "binary_pr":                 "lstm_binary_pr_curve.png",
+    "binary_calibration":        "lstm_binary_calibration_curve.png",
+    # ── LSTM Multiclass
+    "multi_history":             "lstm_multiclass_history.png",
+    "multi_cm":                  "lstm_multiclass_confusion_matrix.png",
+    "multi_roc":                 "lstm_multiclass_roc_curves.png",
+    "multi_f1":                  "lstm_multiclass_f1_scores.png",
+    "multi_pr":                  "lstm_multiclass_pr_curve.png",
+    # ── CNN-LSTM Binary
+    "cnn_lstm_binary_history":   "cnn_lstm_binary_history.png",
+    "cnn_lstm_binary_cm":        "cnn_lstm_binary_confusion_matrix.png",
+    "cnn_lstm_binary_roc":       "cnn_lstm_binary_roc_curve.png",
+    "cnn_lstm_binary_f1":        "cnn_lstm_binary_f1_scores.png",
+    "cnn_lstm_binary_pr":        "cnn_lstm_binary_pr_curve.png",
+    "cnn_lstm_binary_calibration": "cnn_lstm_binary_calibration_curve.png",
+    # ── CNN-LSTM Multiclass
+    "cnn_lstm_multi_history":    "cnn_lstm_multiclass_history.png",
+    "cnn_lstm_multi_cm":         "cnn_lstm_multiclass_confusion_matrix.png",
+    "cnn_lstm_multi_roc":        "cnn_lstm_multiclass_roc_curve.png",
+    "cnn_lstm_multi_f1":         "cnn_lstm_multiclass_f1_scores.png",
+    "cnn_lstm_multi_pr":         "cnn_lstm_multiclass_pr_curve.png",
+    # ── Transformer Binary
+    "transformer_binary_history":     "transformer_binary_history.png",
+    "transformer_binary_cm":          "transformer_binary_confusion_matrix.png",
+    "transformer_binary_roc":         "transformer_binary_roc_curve.png",
+    "transformer_binary_f1":          "transformer_binary_f1_scores.png",
+    "transformer_binary_pr":          "transformer_binary_pr_curve.png",
+    "transformer_binary_calibration": "transformer_binary_calibration_curve.png",
+    # ── Transformer Multiclass
+    "transformer_multi_history":  "transformer_multiclass_history.png",
+    "transformer_multi_cm":       "transformer_multiclass_confusion_matrix.png",
+    "transformer_multi_roc":      "transformer_multiclass_roc_curve.png",
+    "transformer_multi_f1":       "transformer_multiclass_f1_scores.png",
+    "transformer_multi_pr":       "transformer_multiclass_pr_curve.png",
+    # ── RUL
+    "rul_history":                "rul_training_history.png",
+    # ── Simulator
+    "sim_timeline":               "simulation_risk_timeline.png",
 }
 
 
 def get_plot_path(key: str) -> str:
-    """Return the full relative path for a named plot."""
-    import os
-    return os.path.join(PLOTS_DIR, PLOT_NAMES[key])
+    """Return the full path for a named plot."""
+    return _os.path.join(PLOTS_DIR, PLOT_NAMES[key])

@@ -291,6 +291,7 @@ def main():
                 )
             print(f"\n  Training on {len(X_train_bin):,} sequences ...")
             t0 = time.time()
+            bin_hist_path = bin_model_path.replace(".keras", "_history.json")
             history_bin = train_model(
                 model=binary_model,
                 X_train=X_train_bin,
@@ -298,6 +299,7 @@ def main():
                 class_weights=cw_bin,
                 epochs=args.epochs,
                 batch_size=args.batch,
+                history_save_path=bin_hist_path,
             )
             binary_train_time = time.time() - t0
             print(f"  Training time: {binary_train_time:.1f}s")
@@ -359,6 +361,7 @@ def main():
                 )
             print(f"\n  Training on {len(X_train_mul):,} sequences ...")
             t0 = time.time()
+            mul_hist_path = multi_model_path.replace(".keras", "_history.json")
             history_mul = train_model(
                 model=multi_model,
                 X_train=X_train_mul,
@@ -366,6 +369,7 @@ def main():
                 class_weights=cw_mul,
                 epochs=args.epochs,
                 batch_size=args.batch,
+                history_save_path=mul_hist_path,
             )
             multi_train_time = time.time() - t0
             print(f"  Training time: {multi_train_time:.1f}s")
@@ -433,12 +437,14 @@ def main():
     else:
         rul_model = build_rul_lstm(input_shape=input_shape)
         t0 = time.time()
+        rul_hist_path = RUL_MODEL_PATH.replace(".keras", "_history.json")
         history_rul = train_rul_model(
             model=rul_model,
             X_train=X_train_rul,
             y_train=y_train_rul,
             epochs=args.epochs,
             batch_size=args.batch,
+            history_save_path=rul_hist_path,
         )
         rul_train_time = time.time() - t0
         print(f"  Training time: {rul_train_time:.1f}s")

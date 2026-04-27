@@ -59,7 +59,9 @@ def train_rul_model(
     epochs: int = EPOCHS,
     batch_size: int = BATCH_SIZE,
     val_split: float = VAL_SPLIT,
+    history_save_path: str = None,
 ):
+    import json
     callbacks = [
         EarlyStopping(
             monitor="val_loss",
@@ -86,6 +88,15 @@ def train_rul_model(
         callbacks=callbacks,
         verbose=1,
     )
+    if history_save_path:
+        os.makedirs(os.path.dirname(history_save_path) if os.path.dirname(history_save_path) else ".", exist_ok=True)
+        with open(history_save_path, "w") as f:
+            json.dump({
+                "history": {k: [float(v) for v in vals] for k, vals in history.history.items()},
+                "epoch": history.epoch,
+                "params": history.params
+            }, f, indent=2)
+        print(f"  [Saved] RUL History -> {history_save_path}")
     return history
 
 
