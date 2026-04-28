@@ -1,5 +1,6 @@
 # ── Paths ─────────────────────────────────────────────────────────────────────
 import os as _os
+
 DATASET_PATH = _os.path.normpath(
     _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "Dataset", "predictive_maintenance.csv")
 )
@@ -18,8 +19,27 @@ SIM_LOG_CSV = _os.path.normpath(
 REPORT_PDF = _os.path.normpath(
     _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "Report.pdf")
 )
+
 BINARY_MODEL_FILE = "binary_lstm.keras"
 MULTI_MODEL_FILE  = "multiclass_lstm.keras"
+
+# ── Plot subfolders (created automatically by ensure_plot_dirs) ────────────────
+PLOTS_SUBDIRS = {
+    "lstm":           _os.path.join(PLOTS_DIR, "lstm"),
+    "cnn_lstm":       _os.path.join(PLOTS_DIR, "cnn_lstm"),
+    "transformer":    _os.path.join(PLOTS_DIR, "transformer"),
+    "rul":            _os.path.join(PLOTS_DIR, "rul"),
+    "explainability": _os.path.join(PLOTS_DIR, "explainability"),
+    "simulator":      _os.path.join(PLOTS_DIR, "simulator"),
+}
+
+
+def ensure_plot_dirs() -> None:
+    """Create PLOTS_DIR and all architecture subfolders if they don't exist."""
+    _os.makedirs(PLOTS_DIR, exist_ok=True)
+    for path in PLOTS_SUBDIRS.values():
+        _os.makedirs(path, exist_ok=True)
+
 
 # ── Data pipeline ─────────────────────────────────────────────────────────────
 TIME_STEPS  = 10      # LSTM sequence (sliding window) length
@@ -83,70 +103,98 @@ FAULT_THRESHOLDS = {
     "Tool wear [min]":          180,
 }
 
-# ── Plot naming convention ────────────────────────────────────────────────────
-# Keys used internally; paths resolved at runtime via get_plot_path()
+# ── Plot naming convention (relative paths under PLOTS_DIR) ───────────────────
+# Each value is a path relative to PLOTS_DIR, including the subfolder.
 PLOT_NAMES = {
     # ── LSTM Binary
-    "binary_history":            "lstm_binary_history.png",
-    "binary_cm":                 "lstm_binary_confusion_matrix.png",
-    "binary_roc":                "lstm_binary_roc_curve.png",
-    "binary_f1":                 "lstm_binary_f1_scores.png",
-    "binary_pr":                 "lstm_binary_pr_curve.png",
-    "binary_calibration":        "lstm_binary_calibration_curve.png",
+    "binary_history":               _os.path.join("lstm", "binary_history.png"),
+    "binary_cm":                    _os.path.join("lstm", "binary_confusion_matrix.png"),
+    "binary_roc":                   _os.path.join("lstm", "binary_roc_curve.png"),
+    "binary_f1":                    _os.path.join("lstm", "binary_f1_scores.png"),
+    "binary_pr":                    _os.path.join("lstm", "binary_pr_curve.png"),
+    "binary_calibration":           _os.path.join("lstm", "binary_calibration_curve.png"),
     # ── LSTM Multiclass
-    "multi_history":             "lstm_multiclass_history.png",
-    "multi_cm":                  "lstm_multiclass_confusion_matrix.png",
-    "multi_roc":                 "lstm_multiclass_roc_curves.png",
-    "multi_f1":                  "lstm_multiclass_f1_scores.png",
-    "multi_pr":                  "lstm_multiclass_pr_curve.png",
+    "multi_history":                _os.path.join("lstm", "multiclass_history.png"),
+    "multi_cm":                     _os.path.join("lstm", "multiclass_confusion_matrix.png"),
+    "multi_roc":                    _os.path.join("lstm", "multiclass_roc_curves.png"),
+    "multi_f1":                     _os.path.join("lstm", "multiclass_f1_scores.png"),
+    "multi_pr":                     _os.path.join("lstm", "multiclass_pr_curve.png"),
     # ── CNN-LSTM Binary
-    "cnn_lstm_binary_history":   "cnn_lstm_binary_history.png",
-    "cnn_lstm_binary_cm":        "cnn_lstm_binary_confusion_matrix.png",
-    "cnn_lstm_binary_roc":       "cnn_lstm_binary_roc_curve.png",
-    "cnn_lstm_binary_f1":        "cnn_lstm_binary_f1_scores.png",
-    "cnn_lstm_binary_pr":        "cnn_lstm_binary_pr_curve.png",
-    "cnn_lstm_binary_calibration": "cnn_lstm_binary_calibration_curve.png",
+    "cnn_lstm_binary_history":      _os.path.join("cnn_lstm", "binary_history.png"),
+    "cnn_lstm_binary_cm":           _os.path.join("cnn_lstm", "binary_confusion_matrix.png"),
+    "cnn_lstm_binary_roc":          _os.path.join("cnn_lstm", "binary_roc_curve.png"),
+    "cnn_lstm_binary_f1":           _os.path.join("cnn_lstm", "binary_f1_scores.png"),
+    "cnn_lstm_binary_pr":           _os.path.join("cnn_lstm", "binary_pr_curve.png"),
+    "cnn_lstm_binary_calibration":  _os.path.join("cnn_lstm", "binary_calibration_curve.png"),
     # ── CNN-LSTM Multiclass
-    "cnn_lstm_multi_history":    "cnn_lstm_multiclass_history.png",
-    "cnn_lstm_multi_cm":         "cnn_lstm_multiclass_confusion_matrix.png",
-    "cnn_lstm_multi_roc":        "cnn_lstm_multiclass_roc_curve.png",
-    "cnn_lstm_multi_f1":         "cnn_lstm_multiclass_f1_scores.png",
-    "cnn_lstm_multi_pr":         "cnn_lstm_multiclass_pr_curve.png",
+    "cnn_lstm_multi_history":       _os.path.join("cnn_lstm", "multiclass_history.png"),
+    "cnn_lstm_multi_cm":            _os.path.join("cnn_lstm", "multiclass_confusion_matrix.png"),
+    "cnn_lstm_multi_roc":           _os.path.join("cnn_lstm", "multiclass_roc_curve.png"),
+    "cnn_lstm_multi_f1":            _os.path.join("cnn_lstm", "multiclass_f1_scores.png"),
+    "cnn_lstm_multi_pr":            _os.path.join("cnn_lstm", "multiclass_pr_curve.png"),
     # ── Transformer Binary
-    "transformer_binary_history":     "transformer_binary_history.png",
-    "transformer_binary_cm":          "transformer_binary_confusion_matrix.png",
-    "transformer_binary_roc":         "transformer_binary_roc_curve.png",
-    "transformer_binary_f1":          "transformer_binary_f1_scores.png",
-    "transformer_binary_pr":          "transformer_binary_pr_curve.png",
-    "transformer_binary_calibration": "transformer_binary_calibration_curve.png",
+    "transformer_binary_history":       _os.path.join("transformer", "binary_history.png"),
+    "transformer_binary_cm":            _os.path.join("transformer", "binary_confusion_matrix.png"),
+    "transformer_binary_roc":           _os.path.join("transformer", "binary_roc_curve.png"),
+    "transformer_binary_f1":            _os.path.join("transformer", "binary_f1_scores.png"),
+    "transformer_binary_pr":            _os.path.join("transformer", "binary_pr_curve.png"),
+    "transformer_binary_calibration":   _os.path.join("transformer", "binary_calibration_curve.png"),
     # ── Transformer Multiclass
-    "transformer_multi_history":  "transformer_multiclass_history.png",
-    "transformer_multi_cm":       "transformer_multiclass_confusion_matrix.png",
-    "transformer_multi_roc":      "transformer_multiclass_roc_curve.png",
-    "transformer_multi_f1":       "transformer_multiclass_f1_scores.png",
-    "transformer_multi_pr":       "transformer_multiclass_pr_curve.png",
+    "transformer_multi_history":    _os.path.join("transformer", "multiclass_history.png"),
+    "transformer_multi_cm":         _os.path.join("transformer", "multiclass_confusion_matrix.png"),
+    "transformer_multi_roc":        _os.path.join("transformer", "multiclass_roc_curve.png"),
+    "transformer_multi_f1":         _os.path.join("transformer", "multiclass_f1_scores.png"),
+    "transformer_multi_pr":         _os.path.join("transformer", "multiclass_pr_curve.png"),
     # ── RUL
-    "rul_history":                "rul_training_history.png",
+    "rul_history":                  _os.path.join("rul", "training_history.png"),
     # ── Simulator
-    "sim_timeline":               "simulation_risk_timeline.png",
+    "sim_timeline":                 _os.path.join("simulator", "risk_timeline.png"),
+    # ── Explainability
+    "feature_contribution":         _os.path.join("explainability", "feature_contribution_by_failure_type.png"),
 }
 
 
 def get_plot_path(key: str) -> str:
-    """Return the full path for a named plot."""
-    return _os.path.join(PLOTS_DIR, PLOT_NAMES[key])
+    """Return the absolute path for a named plot key."""
+    if key not in PLOT_NAMES:
+        raise KeyError(f"Unknown plot key: '{key}'. Available: {list(PLOT_NAMES.keys())}")
+    rel = PLOT_NAMES[key]
+    full = _os.path.join(PLOTS_DIR, rel)
+    # Ensure the subfolder exists
+    _os.makedirs(_os.path.dirname(full), exist_ok=True)
+    return full
+
+
+# ── Model path lookup ─────────────────────────────────────────────────────────
+# Maps (arch, task) → filename in MODELS_DIR.
+# Actual files on disk:
+#   binary_lstm.keras, multiclass_lstm.keras
+#   cnn_lstm_binary.keras, cnn_lstm_multiclass.keras
+#   transformer_binary.keras, transformer_multiclass.keras
+#   rul_lstm.keras
+
+_MODEL_FILE_MAP = {
+    ("lstm",        "binary"):      "binary_lstm.keras",
+    ("lstm",        "multiclass"):  "multiclass_lstm.keras",
+    ("lstm",        "rul"):         "rul_lstm.keras",
+    ("cnn_lstm",    "binary"):      "cnn_lstm_binary.keras",
+    ("cnn_lstm",    "multiclass"):  "cnn_lstm_multiclass.keras",
+    ("transformer", "binary"):      "transformer_binary.keras",
+    ("transformer", "multiclass"):  "transformer_multiclass.keras",
+}
 
 
 def get_model_path(arch: str, task: str) -> str:
-    """Return the full path for a model file.
-    
-    Args:
-        arch: Architecture key (lstm, cnn_lstm, transformer)
-        task: Task type (binary, multiclass, rul)
-    
-    Returns:
-        Full path to the model file.
+    """Return the absolute path for a model file.
+
+    Parameters
+    ----------
+    arch : 'lstm', 'cnn_lstm', 'transformer'
+    task : 'binary', 'multiclass', 'rul'
     """
-    task_suffix = "_binary" if task == "binary" else ("_multiclass" if task == "multiclass" else "")
-    model_file = f"{arch}{task_suffix}.keras"
-    return _os.path.join(MODELS_DIR, model_file)
+    key = (arch.lower().strip(), task.lower().strip())
+    if key not in _MODEL_FILE_MAP:
+        raise KeyError(
+            f"Unknown (arch, task): {key}. Valid: {list(_MODEL_FILE_MAP.keys())}"
+        )
+    return _os.path.join(MODELS_DIR, _MODEL_FILE_MAP[key])

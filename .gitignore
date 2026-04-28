@@ -27,3 +27,16 @@ Thumbs.db
 plots/
 *.csv
 Report.pdf
+
+# Streamlit runtime logs
+streamlit_startup.log
+streamlit_startup.err
+*.log
+*.err
+
+# Training history & tuning JSON files (auto-generated)
+models/*.json
+Code/__pycache__/
+
+# Keras model weights (large binaries — store via DVC or Git LFS)
+models/*.keras

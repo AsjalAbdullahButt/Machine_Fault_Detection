@@ -66,9 +66,8 @@ def preprocess(df: pd.DataFrame):
 
     le = LabelEncoder()
     le.fit(FAILURE_TYPES)
-    df["failure_label"] = le.transform(
-        df["Failure Type"].apply(lambda x: x if x in FAILURE_TYPES else "No Failure")
-    )
+    _mapped = df["Failure Type"].apply(lambda x: x if x in FAILURE_TYPES else "No Failure").to_numpy()
+    df["failure_label"] = np.asarray(le.transform(_mapped))
 
     return df, le
 
@@ -77,9 +76,9 @@ def preprocess(df: pd.DataFrame):
 def split_features_labels(df: pd.DataFrame):
     """Return X (features), y_binary, y_multi."""
     use_cols = (["Type"] + FEATURE_COLS) if "Type" in df.columns else FEATURE_COLS
-    X        = df[use_cols].values.astype(np.float32)
-    y_binary = df["Target"].values.astype(np.int32)
-    y_multi  = df["failure_label"].values.astype(np.int32)
+    X        = np.asarray(df[use_cols], dtype=np.float32)
+    y_binary = np.asarray(df["Target"],        dtype=np.int32)
+    y_multi  = np.asarray(df["failure_label"], dtype=np.int32)
     return X, y_binary, y_multi
 
 
@@ -98,7 +97,7 @@ def apply_smote(X: np.ndarray, y: np.ndarray, random_state: int = RANDOM_SEED):
         k_neighbors = max(1, min(5, min_count - 1))
         sampler = SMOTE(random_state=random_state, k_neighbors=k_neighbors)
 
-    X_res, y_res = sampler.fit_resample(X, y)
+    X_res, y_res = sampler.fit_resample(X, y)  # type: ignore[assignment]
     print(f"  After  SMOTE — class distribution: {dict(zip(*np.unique(y_res, return_counts=True)))}")
     return X_res, y_res
 
@@ -108,7 +107,8 @@ def apply_smote_sequences(X_seq: np.ndarray, y_seq: np.ndarray, random_state: in
     n_samples, time_steps, n_features = X_seq.shape
     X_flat = X_seq.reshape(n_samples, time_steps * n_features)
     X_res, y_res = apply_smote(X_flat, y_seq, random_state=random_state)
-    X_res = X_res.reshape(X_res.shape[0], time_steps, n_features).astype(np.float32)
+    X_res_arr = np.asarray(X_res)
+    X_res = X_res_arr.reshape(X_res_arr.shape[0], time_steps, n_features).astype(np.float32)
     return X_res, y_res.astype(np.int32)
 
 
@@ -240,8 +240,8 @@ def build_pipeline(
         )
 
     print("\n[DATA] Computing class weights ...")
-    cw_bin = compute_class_weights(y_train_seq_bin)
-    cw_mul = compute_class_weights(y_train_seq_mul)
+    cw_bin = compute_class_weights(np.asarray(y_train_seq_bin))
+    cw_mul = compute_class_weights(np.asarray(y_train_seq_mul))
 
     print(f"  Binary train seq  : {X_train_seq_bin.shape}  labels: {y_train_seq_bin.shape}")
     print(f"  Multi  train seq  : {X_train_seq_mul.shape}  labels: {y_train_seq_mul.shape}")
@@ -298,8 +298,8 @@ def _prepare_fold_sequences(
         X_train_seq_bin, y_train_seq_bin = apply_smote_sequences(X_train_seq_bin, y_train_seq_bin, random_state)
         X_train_seq_mul, y_train_seq_mul = apply_smote_sequences(X_train_seq_mul, y_train_seq_mul, random_state)
 
-    cw_bin = compute_class_weights(y_train_seq_bin)
-    cw_mul = compute_class_weights(y_train_seq_mul)
+    cw_bin = compute_class_weights(np.asarray(y_train_seq_bin))
+    cw_mul = compute_class_weights(np.asarray(y_train_seq_mul))
 
     return {
         "scaler": scaler,

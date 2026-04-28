@@ -12,6 +12,7 @@ from keras.optimizers import Adam
 
 from config import (
     PLOTS_DIR,
+    PLOTS_SUBDIRS,
     LSTM_UNITS,
     DROPOUT_RATE,
     LEARNING_RATE,
@@ -22,13 +23,19 @@ from config import (
     ES_MIN_DELTA,
     LR_PATIENCE,
     MIN_LR,
+    ensure_plot_dirs,
 )
 
-os.makedirs(PLOTS_DIR, exist_ok=True)
+ensure_plot_dirs()
+
+RUL_PLOT_DIR = PLOTS_SUBDIRS["rul"]
 
 
 def build_rul_lstm(input_shape, units=LSTM_UNITS, dropout=DROPOUT_RATE):
-    """LSTM regressor for Remaining Useful Life (steps to failure)."""
+    """LSTM regressor for Remaining Useful Life (steps-to-failure).
+
+    Uses Huber loss (robust to outliers) and ReLU output to enforce non-negative predictions.
+    """
     model = Sequential(
         [
             LSTM(units, return_sequences=True, input_shape=input_shape),
@@ -56,7 +63,7 @@ def train_rul_model(
     model,
     X_train,
     y_train,
-    epochs: int = EPOCHS,
+    epochs: int     = EPOCHS,
     batch_size: int = BATCH_SIZE,
     val_split: float = VAL_SPLIT,
     history_save_path: str = None,
@@ -80,8 +87,7 @@ def train_rul_model(
     ]
 
     history = model.fit(
-        X_train,
-        y_train,
+        X_train, y_train,
         epochs=epochs,
         batch_size=batch_size,
         validation_split=val_split,
@@ -93,53 +99,65 @@ def train_rul_model(
         with open(history_save_path, "w") as f:
             json.dump({
                 "history": {k: [float(v) for v in vals] for k, vals in history.history.items()},
-                "epoch": history.epoch,
-                "params": history.params
+                "epoch":   history.epoch,
+                "params":  history.params,
             }, f, indent=2)
         print(f"  [Saved] RUL History -> {history_save_path}")
     return history
 
 
 def plot_rul_history(history, out_path: str):
+    """Plot RUL training history (Huber loss + MAE) and save to rul/ subfolder."""
     history_dict = getattr(history, "history", {}) or {}
     if "loss" not in history_dict:
         return
 
-    epochs = np.array(getattr(history, "epoch", list(range(len(history_dict["loss"])))), dtype=np.int32) + 1
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+    epochs = np.array(
+        getattr(history, "epoch", list(range(len(history_dict["loss"])))),
+        dtype=np.int32,
+    ) + 1
 
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+    fig.suptitle("RUL LSTM — Training History", fontsize=13, fontweight="bold")
+
+    # Huber loss subplot
     if len(epochs) == 1:
-        axes[0].scatter(epochs, history_dict["loss"], label="Train Huber", s=50)
+        axes[0].scatter(epochs, history_dict["loss"], label="Train Huber", s=60)
         if "val_loss" in history_dict:
-            axes[0].scatter(epochs, history_dict["val_loss"], label="Val Huber", s=50, marker="x")
+            axes[0].scatter(epochs, history_dict["val_loss"], label="Val Huber", s=60, marker="x")
         axes[0].set_xlim(0.5, 1.5)
         axes[0].set_xticks([1])
     else:
         axes[0].plot(epochs, history_dict["loss"], label="Train Huber", linewidth=2)
         if "val_loss" in history_dict:
             axes[0].plot(epochs, history_dict["val_loss"], label="Val Huber", linewidth=2, linestyle="--")
-    axes[0].set_title("RUL Loss over Epochs")
+    axes[0].set_title("Huber Loss over Epochs")
     axes[0].set_xlabel("Epoch")
     axes[0].set_ylabel("Huber Loss")
     axes[0].legend()
     axes[0].grid(alpha=0.3)
 
+    # MAE subplot
     if "mae" in history_dict:
         if len(epochs) == 1:
-            axes[1].scatter(epochs, history_dict["mae"], label="Train MAE", s=50)
+            axes[1].scatter(epochs, history_dict["mae"], label="Train MAE", s=60)
             if "val_mae" in history_dict:
-                axes[1].scatter(epochs, history_dict["val_mae"], label="Val MAE", s=50, marker="x")
+                axes[1].scatter(epochs, history_dict["val_mae"], label="Val MAE", s=60, marker="x")
             axes[1].set_xlim(0.5, 1.5)
             axes[1].set_xticks([1])
         else:
             axes[1].plot(epochs, history_dict["mae"], label="Train MAE", linewidth=2)
             if "val_mae" in history_dict:
                 axes[1].plot(epochs, history_dict["val_mae"], label="Val MAE", linewidth=2, linestyle="--")
-        axes[1].set_title("RUL MAE over Epochs")
+        axes[1].set_title("MAE over Epochs")
         axes[1].set_xlabel("Epoch")
         axes[1].set_ylabel("MAE (steps)")
         axes[1].legend()
         axes[1].grid(alpha=0.3)
+    else:
+        axes[1].text(0.5, 0.5, "MAE history unavailable", ha="center", va="center",
+                     transform=axes[1].transAxes)
+        axes[1].set_axis_off()
 
     fig.tight_layout()
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -147,19 +165,17 @@ def plot_rul_history(history, out_path: str):
     print(f"  [Saved] {out_path}")
 
 
-def evaluate_rul_model(model, X_test, y_test):
+def evaluate_rul_model(model, X_test, y_test) -> dict:
+    """Evaluate RUL regression model and report MAE + RMSE."""
     y_pred = model.predict(X_test, verbose=0).flatten()
-    mae = float(np.mean(np.abs(y_test - y_pred)))
-    rmse = float(np.sqrt(np.mean((y_test - y_pred) ** 2)))
+    mae    = float(np.mean(np.abs(y_test - y_pred)))
+    rmse   = float(np.sqrt(np.mean((y_test - y_pred) ** 2)))
 
     print("\n" + "=" * 65)
     print("  RUL LSTM — EVALUATION RESULTS")
     print("=" * 65)
-    print(f"  MAE  (steps): {mae:.4f}")
-    print(f"  RMSE (steps): {rmse:.4f}")
+    print(f"  MAE  (steps to failure): {mae:.4f}")
+    print(f"  RMSE (steps to failure): {rmse:.4f}")
+    print("=" * 65)
 
-    return {
-        "mae": mae,
-        "rmse": rmse,
-        "y_pred": y_pred,
-    }
+    return {"mae": mae, "rmse": rmse, "y_pred": y_pred}

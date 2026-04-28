@@ -15,9 +15,9 @@ from reportlab.platypus import (
 
 import pandas as pd
 
-from config import get_plot_path, PLOT_NAMES
+from config import get_plot_path, RESULTS_CSV, SIM_LOG_CSV
 
-PAGE_W = A4[0] - 32 * mm   # usable width with 16 mm margins each side
+PAGE_W = A4[0] - 32 * mm   # usable width with 16 mm margins
 
 
 # ── Table helpers ─────────────────────────────────────────────────────────────
@@ -25,18 +25,18 @@ PAGE_W = A4[0] - 32 * mm   # usable width with 16 mm margins each side
 def _make_table(data, col_widths=None, header_fill="#111827"):
     table = Table(data, colWidths=col_widths, hAlign="CENTER")
     table.setStyle(TableStyle([
-        ("BACKGROUND",   (0, 0), (-1,  0), colors.HexColor(header_fill)),
-        ("TEXTCOLOR",    (0, 0), (-1,  0), colors.white),
-        ("FONTNAME",     (0, 0), (-1,  0), "Helvetica-Bold"),
-        ("FONTSIZE",     (0, 0), (-1, -1), 9),
-        ("LEADING",      (0, 0), (-1, -1), 11),
-        ("GRID",         (0, 0), (-1, -1), 0.35, colors.HexColor("#CBD5E1")),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
-        ("VALIGN",       (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING",  (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING",   (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING",(0, 0), (-1, -1), 5),
+        ("BACKGROUND",    (0, 0), (-1,  0), colors.HexColor(header_fill)),
+        ("TEXTCOLOR",     (0, 0), (-1,  0), colors.white),
+        ("FONTNAME",      (0, 0), (-1,  0), "Helvetica-Bold"),
+        ("FONTSIZE",      (0, 0), (-1, -1), 9),
+        ("LEADING",       (0, 0), (-1, -1), 11),
+        ("GRID",          (0, 0), (-1, -1), 0.35, colors.HexColor("#CBD5E1")),
+        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+        ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 6),
+        ("TOPPADDING",    (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
     return table
 
@@ -61,15 +61,14 @@ def _info_card(body_style, label: str, value: str, value_size: int = 13):
     return table
 
 
-def _embed_plot(path: str, caption: str, max_width: float = None) -> list:
-    """Return a list of flowables: image + caption, or a warning if missing."""
+def _embed_plot(path: str, caption: str, max_width: float | None = None) -> list:
+    """Return [Image, Caption] flowables, or a warning paragraph if plot is missing."""
     if not os.path.exists(path):
         return [Paragraph(f"<i>[Plot not found: {os.path.basename(path)}]</i>",
                           getSampleStyleSheet()["Normal"])]
     img = Image(path)
     if max_width is None:
         max_width = PAGE_W
-    # Scale proportionally to fit max width
     scale = max_width / img.imageWidth
     img.drawWidth  = img.imageWidth  * scale
     img.drawHeight = img.imageHeight * scale
@@ -143,10 +142,10 @@ def save_pdf_report(
     banner = Table(
         [[
             Paragraph("Predictive Fault Detection Report", title_style),
-            Paragraph("LSTM-based anomaly detection and failure classification", subtitle_style),
+            Paragraph("LSTM · CNN-LSTM · Transformer — anomaly detection & failure classification", subtitle_style),
             Paragraph(f"Generated {datetime.now().strftime('%d %b %Y, %H:%M')}", note_style),
         ]],
-        colWidths=[PAGE_W * 0.47, PAGE_W * 0.33, PAGE_W * 0.20],
+        colWidths=[PAGE_W * 0.42, PAGE_W * 0.38, PAGE_W * 0.20],
         hAlign="CENTER",
     )
     banner.setStyle(TableStyle([
@@ -180,10 +179,10 @@ def save_pdf_report(
     story.append(Paragraph("Run Overview", section_style))
     story.append(_make_table(
         [["Field", "Value"],
-         ["Generated",    datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
-         ["Dataset",      dataset_name],
-         ["Input Shape",  str(input_shape)],
-         ["Classes",      ", ".join(class_names)]],
+         ["Generated",   datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
+         ["Dataset",     dataset_name],
+         ["Input Shape", str(input_shape)],
+         ["Classes",     ", ".join(class_names)]],
         col_widths=[40 * mm, PAGE_W - 40 * mm],
     ))
 
@@ -202,7 +201,7 @@ def save_pdf_report(
     # ── Model Results ─────────────────────────────────────────────────────────
     story.append(Paragraph("Model Results", section_style))
     results_table = _make_table(
-        [["Model",            "Accuracy",  "Precision", "Recall",  "F1",      "ROC-AUC"],
+        [["Model",         "Accuracy",  "Precision", "Recall",  "F1",      "ROC-AUC"],
          ["Binary LSTM",
           f"{binary_res['accuracy']:.4f}",
           f"{binary_res['precision']:.4f}",
@@ -214,8 +213,9 @@ def save_pdf_report(
           f"{multi_res['precision']:.4f}",
           f"{multi_res['recall']:.4f}",
           f"{multi_res['f1']:.4f}",
-          "N/A"]],
-        col_widths=[PAGE_W * 0.24, PAGE_W * 0.14, PAGE_W * 0.15, PAGE_W * 0.14, PAGE_W * 0.14, PAGE_W * 0.19],
+          f"{multi_res['roc_auc']:.4f}"]],
+        col_widths=[PAGE_W * 0.24, PAGE_W * 0.14, PAGE_W * 0.15,
+                    PAGE_W * 0.14, PAGE_W * 0.14, PAGE_W * 0.19],
     )
     results_table.hAlign = "CENTER"
     results_table.setStyle(TableStyle([
@@ -239,102 +239,100 @@ def save_pdf_report(
     story.append(Spacer(1, 3 * mm))
     story.append(metric_strip)
 
-    # ── Working Summary ──────────────────────────────────────────────────────
+    # ── How the System Works ──────────────────────────────────────────────────
     story.append(Paragraph("How the System Works", section_style))
     story.append(Paragraph(
-        "The pipeline first cleans the industrial sensor data, converts it into time-series windows, "
-        "balances the training folds safely after sequencing, and then trains multiple architectures. "
-        "The binary model decides whether the machine is in a fault or no-fault state, the multiclass model "
-        "identifies the specific failure type, and the RUL model estimates how many steps remain before failure.",
+        "The pipeline cleans industrial sensor data, converts it into time-series windows, "
+        "balances folds with SMOTE after sequencing, then trains three architectures (LSTM, CNN-LSTM, Transformer). "
+        "The binary model detects fault vs. no-fault; the multiclass model identifies the specific failure type; "
+        "the RUL model estimates remaining steps before failure.",
         body_style,
     ))
     story.append(Spacer(1, 2 * mm))
     story.append(Paragraph(
-        "During evaluation, the project reports accuracy, F1, ROC-AUC, PR-AUC, MCC, calibration, and a model "
-        "comparison table. The simulator then uses the saved models to show live risk, the predicted failure type, "
-        "and the estimated remaining useful life.",
-        body_style,
-    ))
-
-    # ── Fault Identification Summary ────────────────────────────────────────
-    story.append(Paragraph("Fault vs No-Fault Identification", section_style))
-    story.append(Paragraph(
-        f"Binary classification is the first decision layer: when the model predicts No Fault, the machine is "
-        f"treated as healthy; when it predicts Fault, the system escalates to the multiclass classifier to name the "
-        f"specific failure type. This makes the output easier to interpret in a maintenance setting and gives a "
-        f"direct link between sensor patterns and machine state.",
-        body_style,
-    ))
-    story.append(Spacer(1, 2 * mm))
-    story.append(Paragraph(
-        f"In the current run, the binary model achieved {binary_res['accuracy']:.3f} accuracy with an F1 of "
-        f"{binary_res['f1']:.3f}, while the multiclass model achieved {multi_res['accuracy']:.3f} accuracy and "
-        f"{multi_res['f1']:.3f} weighted F1. The comparison shows how each architecture balances detection quality "
-        f"and calibration across the fault classes.",
+        "Evaluation covers accuracy, F1, ROC-AUC, PR-AUC, MCC, Brier score, and calibration. "
+        "The simulator then replays learned models to show live risk, predicted failure type, and RUL.",
         body_style,
     ))
 
     # ── Model Comparison ─────────────────────────────────────────────────────
-    story.append(Paragraph("Model Comparison", section_style))
-    if os.path.exists("results_summary.csv"):
+    story.append(Paragraph("Model Comparison (All Architectures)", section_style))
+    if os.path.exists(RESULTS_CSV):
         try:
-            comparison_df = pd.read_csv("results_summary.csv")
-            comparison_df = comparison_df[[
-                "Task", "Architecture", "Accuracy", "F1", "ROC-AUC", "PR-AUC", "MCC", "Training Time (s)",
-            ]]
-            comparison_rows = [comparison_df.columns.tolist()] + comparison_df.astype(str).values.tolist()
-            comparison_table = _make_table(
-                comparison_rows,
+            cdf = pd.read_csv(RESULTS_CSV)
+            cdf = cdf[["Task", "Architecture", "Accuracy", "F1", "ROC-AUC", "PR-AUC", "MCC", "Training Time (s)"]]
+            crows = [cdf.columns.tolist()] + cdf.astype(str).values.tolist()
+            ctable = _make_table(
+                crows,
                 col_widths=[25 * mm, 28 * mm, 18 * mm, 18 * mm, 18 * mm, 18 * mm, 16 * mm, 25 * mm],
             )
-            comparison_table.hAlign = "CENTER"
-            story.append(comparison_table)
+            ctable.hAlign = "CENTER"
+            story.append(ctable)
         except Exception:
-            story.append(Paragraph(
-                "The model comparison table could not be loaded from results_summary.csv for this PDF build.",
-                body_style,
-            ))
+            story.append(Paragraph("Could not load model comparison table from results_summary.csv.", body_style))
     else:
-        story.append(Paragraph(
-            "results_summary.csv was not found, so the model comparison table could not be embedded.",
-            body_style,
-        ))
+        story.append(Paragraph("results_summary.csv not found — run the full pipeline first.", body_style))
 
-    # ── Visualizations — Binary ───────────────────────────────────────────────
+    # ── Visualizations — LSTM Binary ─────────────────────────────────────────
     story.append(PageBreak())
-    story.append(Paragraph("Binary LSTM — Visualizations", section_style))
-
+    story.append(Paragraph("LSTM — Binary Classification Plots", section_style))
     for key, caption in [
-        ("binary_history", "Figure 1 — Binary LSTM: Training Loss & Accuracy"),
-        ("binary_cm",      "Figure 2 — Binary LSTM: Confusion Matrix"),
-        ("binary_roc",     "Figure 3 — Binary LSTM: ROC Curve"),
-        ("binary_f1",      "Figure 4 — Binary LSTM: F1 Score per Class"),
+        ("binary_history", "Fig 1 — LSTM Binary: Training Loss & Accuracy"),
+        ("binary_cm",      "Fig 2 — LSTM Binary: Confusion Matrix"),
+        ("binary_roc",     "Fig 3 — LSTM Binary: ROC Curve"),
+        ("binary_f1",      "Fig 4 — LSTM Binary: F1 Score per Class"),
     ]:
         story.extend(_embed_plot(get_plot_path(key), caption))
 
-    # ── Visualizations — Multiclass ───────────────────────────────────────────
+    # ── Visualizations — LSTM Multiclass ─────────────────────────────────────
     story.append(PageBreak())
-    story.append(Paragraph("Multiclass LSTM — Visualizations", section_style))
-
+    story.append(Paragraph("LSTM — Multiclass Classification Plots", section_style))
     for key, caption in [
-        ("multi_history", "Figure 5 — Multiclass LSTM: Training Loss & Accuracy"),
-        ("multi_cm",      "Figure 6 — Multiclass LSTM: Confusion Matrix"),
-        ("multi_roc",     "Figure 7 — Multiclass LSTM: One-vs-Rest ROC Curves"),
-        ("multi_f1",      "Figure 8 — Multiclass LSTM: F1 Score per Class"),
+        ("multi_history", "Fig 5 — LSTM Multiclass: Training Loss & Accuracy"),
+        ("multi_cm",      "Fig 6 — LSTM Multiclass: Confusion Matrix"),
+        ("multi_roc",     "Fig 7 — LSTM Multiclass: One-vs-Rest ROC Curves"),
+        ("multi_f1",      "Fig 8 — LSTM Multiclass: F1 Score per Class"),
     ]:
         story.extend(_embed_plot(get_plot_path(key), caption))
+
+    # ── Visualizations — CNN-LSTM ─────────────────────────────────────────────
+    story.append(PageBreak())
+    story.append(Paragraph("CNN-LSTM — Classification Plots", section_style))
+    for key, caption in [
+        ("cnn_lstm_binary_history", "Fig 9  — CNN-LSTM Binary: Training History"),
+        ("cnn_lstm_binary_cm",      "Fig 10 — CNN-LSTM Binary: Confusion Matrix"),
+        ("cnn_lstm_multi_history",  "Fig 11 — CNN-LSTM Multiclass: Training History"),
+        ("cnn_lstm_multi_cm",       "Fig 12 — CNN-LSTM Multiclass: Confusion Matrix"),
+    ]:
+        story.extend(_embed_plot(get_plot_path(key), caption))
+
+    # ── Visualizations — Transformer ─────────────────────────────────────────
+    story.append(PageBreak())
+    story.append(Paragraph("Transformer — Classification Plots", section_style))
+    for key, caption in [
+        ("transformer_binary_history", "Fig 13 — Transformer Binary: Training History"),
+        ("transformer_binary_cm",      "Fig 14 — Transformer Binary: Confusion Matrix"),
+        ("transformer_multi_history",  "Fig 15 — Transformer Multiclass: Training History"),
+        ("transformer_multi_cm",       "Fig 16 — Transformer Multiclass: Confusion Matrix"),
+    ]:
+        story.extend(_embed_plot(get_plot_path(key), caption))
+
+    # ── RUL ───────────────────────────────────────────────────────────────────
+    story.append(PageBreak())
+    story.append(Paragraph("Remaining Useful Life (RUL) Model", section_style))
+    story.extend(_embed_plot(get_plot_path("rul_history"), "Fig 17 — RUL LSTM: Training History (Huber Loss + MAE)"))
 
     # ── Simulator Timeline ────────────────────────────────────────────────────
     sim_path = get_plot_path("sim_timeline")
     if not args.no_sim and os.path.exists(sim_path):
         story.append(Paragraph("Simulator — Risk Timeline", section_style))
-        story.extend(_embed_plot(sim_path, "Figure 9 — Simulator: Fault Risk % over Simulation Steps"))
+        story.extend(_embed_plot(sim_path, "Fig 18 — Simulator: Fault Risk % over Simulation Steps"))
 
     # ── Generated Files ───────────────────────────────────────────────────────
     story.append(Paragraph("Generated Files", section_style))
     file_rows = [["Status", "File", "Description"]]
     for path, desc in outputs:
-        if path.endswith("simulation_log.csv") and args.no_sim:
+        if path == SIM_LOG_CSV and args.no_sim:
             status = "SKIPPED"
         else:
             status = "OK" if os.path.exists(path) else "MISSING"
@@ -351,7 +349,6 @@ def save_pdf_report(
     story.append(Spacer(1, 4 * mm))
     story.append(Paragraph(f"Total elapsed time: {elapsed_seconds / 60:.1f} min", note_style))
 
-    # ── Build ─────────────────────────────────────────────────────────────────
     def add_page_number(canvas, doc_obj):
         canvas.saveState()
         canvas.setFont("Helvetica", 8)

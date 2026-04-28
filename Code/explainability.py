@@ -7,9 +7,11 @@ import matplotlib.pyplot as plt
 
 from keras.models import Model
 
-from config import PLOTS_DIR
+from config import PLOTS_DIR, PLOTS_SUBDIRS, get_plot_path, ensure_plot_dirs
 
-os.makedirs(PLOTS_DIR, exist_ok=True)
+ensure_plot_dirs()
+
+EXPL_DIR = PLOTS_SUBDIRS["explainability"]
 
 
 def _safe_name(text: str) -> str:
@@ -18,7 +20,7 @@ def _safe_name(text: str) -> str:
 
 def _extract_attention_scores(transformer_model, sample_sequence: np.ndarray):
     """Return attention scores shaped (heads, T, T) for one sample sequence."""
-    pos_layer = transformer_model.get_layer("positional_encoding")
+    pos_layer  = transformer_model.get_layer("positional_encoding")
     attn_layer = transformer_model.get_layer("self_attention")
 
     pos_model = Model(inputs=transformer_model.input, outputs=pos_layer.output)
@@ -28,11 +30,10 @@ def _extract_attention_scores(transformer_model, sample_sequence: np.ndarray):
 
 
 def plot_attention_heatmap(model, sample_sequence, feature_names, class_name, out_path):
-    """Plot a (time_steps x features) attention-informed heatmap.
+    """Plot a (time_steps × features) attention-informed heatmap.
 
-    Attention scores in transformers are over timestep-to-timestep pairs. To map
-    attention onto features, this function combines timestep attention importance
-    with per-feature signal magnitude in the given sample.
+    Timestep attention importance is combined with per-feature signal magnitude
+    to produce a joint importance surface.
     """
     scores = _extract_attention_scores(model, sample_sequence)
 
@@ -60,16 +61,16 @@ def plot_attention_heatmap(model, sample_sequence, feature_names, class_name, ou
 
 
 def plot_attention_per_fault_type(transformer_model, X_seq, y_seq, class_names, feature_names):
-    """Create one transformer attention heatmap per non-zero failure type."""
+    """Create one attention heatmap per non-zero failure type, saved to explainability subfolder."""
     saved_paths = []
     for cls_idx, cls_name in enumerate(class_names):
         if cls_idx == 0:
-            continue
+            continue  # skip No-Failure class
         idx = np.where(y_seq == cls_idx)[0]
         if len(idx) == 0:
             continue
-        sample = X_seq[idx[0]]
-        out_path = os.path.join(PLOTS_DIR, f"attention_heatmap_{_safe_name(cls_name)}.png")
+        sample   = X_seq[idx[0]]
+        out_path = os.path.join(EXPL_DIR, f"attention_heatmap_{_safe_name(cls_name)}.png")
         plot_attention_heatmap(
             model=transformer_model,
             sample_sequence=sample,
@@ -87,10 +88,9 @@ def compute_permutation_importance_per_failure_type(
     y_test,
     class_names,
     feature_names,
-):
-    """Permutation importance matrix: failure_type x feature based on accuracy drop."""
+) -> pd.DataFrame:
+    """Permutation importance matrix: failure_type × feature, based on accuracy drop."""
     rows = []
-
     for cls_idx, cls_name in enumerate(class_names):
         if cls_idx == 0:
             continue
@@ -98,11 +98,11 @@ def compute_permutation_importance_per_failure_type(
         if np.sum(mask) < 4:
             continue
 
-        X_cls = X_test[mask].copy()
-        y_cls = y_test[mask]
+        X_cls  = X_test[mask].copy()
+        y_cls  = y_test[mask]
 
         base_pred = np.argmax(multiclass_model.predict(X_cls, verbose=0), axis=1)
-        base_acc = float(np.mean(base_pred == y_cls))
+        base_acc  = float(np.mean(base_pred == y_cls))
 
         row = {"Failure Type": cls_name}
         for feat_idx, feat_name in enumerate(feature_names):
@@ -112,7 +112,7 @@ def compute_permutation_importance_per_failure_type(
             X_perm[:, :, feat_idx] = shuffled
 
             perm_pred = np.argmax(multiclass_model.predict(X_perm, verbose=0), axis=1)
-            perm_acc = float(np.mean(perm_pred == y_cls))
+            perm_acc  = float(np.mean(perm_pred == y_cls))
             row[feat_name] = max(0.0, base_acc - perm_acc)
 
         rows.append(row)
@@ -121,15 +121,18 @@ def compute_permutation_importance_per_failure_type(
 
 
 def plot_feature_contribution_grouped(df_importance: pd.DataFrame, feature_names, out_path: str):
-    """Grouped bar chart: failure types x features."""
+    """Grouped bar chart: failure types × features, showing accuracy drop from permutation."""
     if df_importance.empty:
+        print("  [WARN] plot_feature_contribution_grouped: empty dataframe, skipping.")
         return
 
-    x = np.arange(len(df_importance))
+    x     = np.arange(len(df_importance))
     width = 0.12 if len(feature_names) >= 6 else 0.16
 
     fig, ax = plt.subplots(figsize=(12, 5))
     for i, feat in enumerate(feature_names):
+        if feat not in df_importance.columns:
+            continue
         ax.bar(
             x + (i - (len(feature_names) - 1) / 2) * width,
             df_importance[feat].values,
