@@ -1,5 +1,8 @@
 # ── Paths ─────────────────────────────────────────────────────────────────────
 import os as _os
+DATASET_PATH = _os.path.normpath(
+    _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "Dataset", "predictive_maintenance.csv")
+)
 PLOTS_DIR = _os.path.normpath(
     _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "plots")
 )
@@ -132,3 +135,18 @@ PLOT_NAMES = {
 def get_plot_path(key: str) -> str:
     """Return the full path for a named plot."""
     return _os.path.join(PLOTS_DIR, PLOT_NAMES[key])
+
+
+def get_model_path(arch: str, task: str) -> str:
+    """Return the full path for a model file.
+    
+    Args:
+        arch: Architecture key (lstm, cnn_lstm, transformer)
+        task: Task type (binary, multiclass, rul)
+    
+    Returns:
+        Full path to the model file.
+    """
+    task_suffix = "_binary" if task == "binary" else ("_multiclass" if task == "multiclass" else "")
+    model_file = f"{arch}{task_suffix}.keras"
+    return _os.path.join(MODELS_DIR, model_file)
