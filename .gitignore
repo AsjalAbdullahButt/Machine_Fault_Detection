@@ -22,6 +22,10 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+pyrightconfig.json
+
+# Documentation
+docs/
 
 # Generated outputs (not committed)
 plots/
